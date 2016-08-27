@@ -2,23 +2,28 @@ project(vfs.sftp)
 
 cmake_minimum_required(VERSION 2.6)
 
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 list(APPEND CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR})
 
 enable_language(CXX)
 
-find_package(Boost REQUIRED)
-find_package(kodi REQUIRED)
-find_package(kodiplatform REQUIRED)
+find_package(Kodi REQUIRED)
+find_package(p8-platform REQUIRED)
+find_package(Kodiplatform REQUIRED)
 find_package(SSH REQUIRED)
 
 include_directories(${KODI_INCLUDE_DIR}
-                    ${KODIPLATFORM_INCLUDE_DIRS}
+                    ${p8-platform_INCLUDE_DIRS}
+                    ${kodiplatform_INCLUDE_DIRS}
                     ${SSH_INCLUDE_DIRS})
 
 set(SFTP_SOURCES src/SFTPSession.cpp
                  src/SFTPFile.cpp)
 
-set(DEPLIBS ${KODIPLATFORM_LIBRARIES}
+set(DEPLIBS ${kodiplatform_LIBRARIES}
             ${SSH_LIBRARIES})
 
 add_definitions( -D_LARGEFILE64_SOURCE -D_FILE_OFFSET_BITS=64)

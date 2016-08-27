@@ -19,12 +19,12 @@
  */
 
 #include "SFTPSession.h"
-#include "platform/util/timeutils.h"
+#include "util/timeutils.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sstream>
-#include "kodi/libXBMC_addon.h"
+#include "libXBMC_addon.h"
 
 extern ADDON::CHelper_libXBMC_addon* XBMC;
 
@@ -81,16 +81,16 @@ static const char * SFTPErrorText(int sftp_error)
 CSFTPSession::CSFTPSession(VFSURL* url)
 {
   XBMC->Log(ADDON::LOG_INFO, "SFTPSession: Creating new session on host '%s:%d' with user '%s'", url->hostname, url->port, url->username);
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   if (!Connect(url))
     Disconnect();
 
-  m_LastActive = PLATFORM::GetTimeMs();
+  m_LastActive = P8PLATFORM::GetTimeMs();
 }
 
 CSFTPSession::~CSFTPSession()
 {
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   Disconnect();
 }
 
@@ -98,8 +98,8 @@ sftp_file CSFTPSession::CreateFileHande(const std::string& file)
 {
   if (m_connected)
   {
-    PLATFORM::CLockObject lock(m_lock);
-    m_LastActive = PLATFORM::GetTimeMs();
+    P8PLATFORM::CLockObject lock(m_lock);
+    m_LastActive = P8PLATFORM::GetTimeMs();
     sftp_file handle = sftp_open(m_sftp_session, CorrectPath(file).c_str(), O_RDONLY, 0);
     if (handle)
     {
@@ -117,7 +117,7 @@ sftp_file CSFTPSession::CreateFileHande(const std::string& file)
 
 void CSFTPSession::CloseFileHandle(sftp_file handle)
 {
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   sftp_close(handle);
 }
 
@@ -129,8 +129,8 @@ bool CSFTPSession::GetDirectory(const std::string& base, const std::string& fold
   {
     sftp_dir dir = NULL;
 
-    PLATFORM::CLockObject lock(m_lock);
-    m_LastActive = PLATFORM::GetTimeMs();
+    P8PLATFORM::CLockObject lock(m_lock);
+    m_LastActive = P8PLATFORM::GetTimeMs();
     dir = sftp_opendir(m_sftp_session, CorrectPath(folder).c_str());
 
     //Doing as little work as possible within the critical section
@@ -258,8 +258,8 @@ int CSFTPSession::Stat(const char *path, struct __stat64* buffer)
 {
   if(m_connected)
   {
-    PLATFORM::CLockObject lock(m_lock);
-    m_LastActive = PLATFORM::GetTimeMs();
+    P8PLATFORM::CLockObject lock(m_lock);
+    m_LastActive = P8PLATFORM::GetTimeMs();
     sftp_attributes attributes = sftp_stat(m_sftp_session, CorrectPath(path).c_str());
 
     if (attributes)
@@ -292,31 +292,31 @@ int CSFTPSession::Stat(const char *path, struct __stat64* buffer)
 
 int CSFTPSession::Seek(sftp_file handle, uint64_t position)
 {
-  PLATFORM::CLockObject lock(m_lock);
-  m_LastActive = PLATFORM::GetTimeMs();
+  P8PLATFORM::CLockObject lock(m_lock);
+  m_LastActive = P8PLATFORM::GetTimeMs();
   int result = sftp_seek64(handle, position);
   return result;
 }
 
 int CSFTPSession::Read(sftp_file handle, void *buffer, size_t length)
 {
-  PLATFORM::CLockObject lock(m_lock);
-  m_LastActive = PLATFORM::GetTimeMs();
+  P8PLATFORM::CLockObject lock(m_lock);
+  m_LastActive = P8PLATFORM::GetTimeMs();
   int result=sftp_read(handle, buffer, length);
   return result;
 }
 
 int64_t CSFTPSession::GetPosition(sftp_file handle)
 {
-  PLATFORM::CLockObject lock(m_lock);
-  m_LastActive = PLATFORM::GetTimeMs();
+  P8PLATFORM::CLockObject lock(m_lock);
+  m_LastActive = P8PLATFORM::GetTimeMs();
   int64_t result = sftp_tell64(handle);
   return result;
 }
 
 bool CSFTPSession::IsIdle()
 {
-  return (PLATFORM::GetTimeMs() - m_LastActive) > 90000;
+  return (P8PLATFORM::GetTimeMs() - m_LastActive) > 90000;
 }
 
 bool CSFTPSession::VerifyKnownHost(ssh_session session)
@@ -505,7 +505,7 @@ void CSFTPSession::Disconnect()
 bool CSFTPSession::GetItemPermissions(const char *path, uint32_t &permissions)
 {
   bool gotPermissions = false;
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   if(m_connected)
   {
     sftp_attributes attributes = sftp_stat(m_sftp_session, CorrectPath(path).c_str());
@@ -532,12 +532,15 @@ CSFTPSessionManager& CSFTPSessionManager::Get()
 
 CSFTPSessionPtr CSFTPSessionManager::CreateSession(VFSURL* url)
 {
+  if (!url->port)
+    url->port = 22;
+
   // Convert port number to string
   std::stringstream itoa;
   itoa << url->port;
   std::string portstr = itoa.str();
 
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   std::string key = std::string(url->username) + ":" + 
                     url->password + "@" + url->hostname + ":" + portstr;
   CSFTPSessionPtr ptr = sessions[key];
@@ -552,7 +555,7 @@ CSFTPSessionPtr CSFTPSessionManager::CreateSession(VFSURL* url)
 
 void CSFTPSessionManager::ClearOutIdleSessions()
 {
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   for(std::map<std::string, CSFTPSessionPtr>::iterator iter = sessions.begin(); iter != sessions.end();)
   {
     if (iter->second->IsIdle())
@@ -564,6 +567,6 @@ void CSFTPSessionManager::ClearOutIdleSessions()
 
 void CSFTPSessionManager::DisconnectAllSessions()
 {
-  PLATFORM::CLockObject lock(m_lock);
+  P8PLATFORM::CLockObject lock(m_lock);
   sessions.clear();
 }

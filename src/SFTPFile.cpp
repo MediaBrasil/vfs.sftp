@@ -18,8 +18,8 @@
  *
  */
 
-#include "kodi/libXBMC_addon.h"
-#include "platform/threads/mutex.h"
+#include "libXBMC_addon.h"
+#include "threads/mutex.h"
 #include "SFTPSession.h"
 
 #include <map>
@@ -280,7 +280,8 @@ void* GetDirectory(VFSURL* url, VFSDirEntry** items,
   std::vector<VFSDirEntry>* result = new std::vector<VFSDirEntry>;
   CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
   std::stringstream str;
-  str << "sftp://" << url->username << ":" << url->password << "@" << url->hostname << ":" << url->port << "/";
+  str << "sftp://" << url->username << ":" << url->password
+      << "@" << url->hostname << ":" << url->port << "/";
   if (!session->GetDirectory(str.str(), url->filename, *result))
   {
     delete result;

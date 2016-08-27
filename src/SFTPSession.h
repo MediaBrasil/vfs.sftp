@@ -18,12 +18,12 @@
  *
  */
 
-#include <platform/threads/mutex.h>
+#include <threads/mutex.h>
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
-#include <boost/shared_ptr.hpp>
-#include <kodi/xbmc_addon_dll.h>
-#include <kodi/kodi_vfs_types.h>
+#include <memory>
+#include <xbmc_addon_dll.h>
+#include <kodi_vfs_types.h>
 #include <map>
 #include <string>
 #include <vector>
@@ -49,7 +49,7 @@ private:
   bool Connect(VFSURL* url);
   void Disconnect();
   bool GetItemPermissions(const char *path, uint32_t &permissions);
-  PLATFORM::CMutex m_lock;
+  P8PLATFORM::CMutex m_lock;
 
   bool m_connected;
   ssh_session  m_session;
@@ -57,7 +57,7 @@ private:
   int m_LastActive;
 };
 
-typedef boost::shared_ptr<CSFTPSession> CSFTPSessionPtr;
+typedef std::shared_ptr<CSFTPSession> CSFTPSessionPtr;
 
 class CSFTPSessionManager
 {
@@ -69,6 +69,6 @@ public:
 private:
   CSFTPSessionManager() {}
   CSFTPSessionManager& operator=(const CSFTPSessionManager&);
-  PLATFORM::CMutex m_lock;
+  P8PLATFORM::CMutex m_lock;
   std::map<std::string, CSFTPSessionPtr> sessions;
 };
