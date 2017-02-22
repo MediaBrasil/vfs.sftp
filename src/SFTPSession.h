@@ -22,8 +22,7 @@
 #include <libssh/libssh.h>
 #include <libssh/sftp.h>
 #include <memory>
-#include <xbmc_addon_dll.h>
-#include <kodi_vfs_types.h>
+#include <kodi/addon-instance/ExternVFS.h>
 #include <map>
 #include <string>
 #include <vector>

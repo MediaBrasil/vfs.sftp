@@ -18,106 +18,12 @@
  *
  */
 
-#include "libXBMC_addon.h"
+#include <kodi/addon-instance/ExternVFS.h>
 #include "threads/mutex.h"
 #include "SFTPSession.h"
 
 #include <map>
 #include <sstream>
-
-ADDON::CHelper_libXBMC_addon *XBMC           = NULL;
-
-extern "C" {
-
-#include "kodi/kodi_vfs_dll.h"
-#include "kodi/IFileTypes.h"
-
-//-- Create -------------------------------------------------------------------
-// Called on load. Addon should fully initalize or return error status
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_Create(void* hdl, void* props)
-{
-  if (!XBMC)
-    XBMC = new ADDON::CHelper_libXBMC_addon;
-
-  if (!XBMC->RegisterMe(hdl))
-  {
-    delete XBMC, XBMC=NULL;
-    return ADDON_STATUS_PERMANENT_FAILURE;
-  }
-
-  return ADDON_STATUS_OK;
-}
-
-//-- Stop ---------------------------------------------------------------------
-// This dll must cease all runtime activities
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Stop()
-{
-}
-
-//-- Destroy ------------------------------------------------------------------
-// Do everything before unload of this add-on
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Destroy()
-{
-  XBMC=NULL;
-}
-
-//-- HasSettings --------------------------------------------------------------
-// Returns true if this add-on use settings
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-bool ADDON_HasSettings()
-{
-  return false;
-}
-
-//-- GetStatus ---------------------------------------------------------------
-// Returns the current Status of this visualisation
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_GetStatus()
-{
-  return ADDON_STATUS_OK;
-}
-
-//-- GetSettings --------------------------------------------------------------
-// Return the settings for XBMC to display
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-unsigned int ADDON_GetSettings(ADDON_StructSetting ***sSet)
-{
-  return 0;
-}
-
-//-- FreeSettings --------------------------------------------------------------
-// Free the settings struct passed from XBMC
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-
-void ADDON_FreeSettings()
-{
-}
-
-//-- SetSetting ---------------------------------------------------------------
-// Set a specific Setting value (called from XBMC)
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-ADDON_STATUS ADDON_SetSetting(const char *strSetting, const void* value)
-{
-  return ADDON_STATUS_OK;
-}
-
-//-- Announce -----------------------------------------------------------------
-// Receive announcements from XBMC
-// !!! Add-on master function !!!
-//-----------------------------------------------------------------------------
-void ADDON_Announce(const char *flag, const char *sender, const char *message, const void *data)
-{
-}
 
 struct SFTPContext
 {
@@ -126,7 +32,36 @@ struct SFTPContext
   std::string file;
 };
 
-void* Open(VFSURL* url)
+class CSFTPFile
+  : public kodi::addon::CInstanceExternVFS
+{
+public:
+  CSFTPFile(KODI_HANDLE instance);
+
+  virtual void* Open(VFSURL* url) override;
+  virtual ssize_t Read(void* context, void* buffer, size_t uiBufSize) override;
+  virtual int64_t Seek(void* context, int64_t position, int whence) override;
+  virtual int64_t GetLength(void* context) override;
+  virtual int64_t GetPosition(void* context) override;
+  virtual int IoControl(void* context, XFILE::EIoControl request, void* param) override;
+  virtual int Stat(VFSURL* url, struct __stat64* buffer) override;
+  virtual bool Close(void* context) override;
+  virtual bool Exists(VFSURL* url) override;
+  virtual void ClearOutIdle() override;
+  virtual void DisconnectAll() override;
+  virtual bool DirectoryExists(VFSURL* url) override;
+  virtual void* GetDirectory(VFSURL* url,
+                              VFSDirEntry** entries,
+                              int* num_entries,
+                              VFSCallbacks* callbacks) override;
+  virtual void FreeDirectory(void* ctx) override;
+};
+
+CSFTPFile::CSFTPFile(KODI_HANDLE instance) : kodi::addon::CInstanceExternVFS(instance)
+{
+}
+
+void* CSFTPFile::Open(VFSURL* url)
 {
   SFTPContext* result = new SFTPContext;
 
@@ -139,32 +74,92 @@ void* Open(VFSURL* url)
     if (result->sftp_handle)
       return result;
   }
-  else
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Failed to allocate session");
 
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Failed to allocate session");
   delete result;
-  return NULL;
+  return nullptr;
 }
 
-ssize_t Read(void* context, void* lpBuf, size_t uiBufSize)
+ssize_t CSFTPFile::Read(void* context, void* buffer, size_t uiBufSize)
 {
   SFTPContext* ctx = (SFTPContext*)context;
   if (ctx && ctx->session && ctx->sftp_handle)
   {
-    int rc = ctx->session->Read(ctx->sftp_handle, lpBuf, (size_t)uiBufSize);
+    int rc = ctx->session->Read(ctx->sftp_handle, buffer, (size_t)uiBufSize);
 
     if (rc >= 0)
       return rc;
     else
-      XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Failed to read %i", rc);
+      kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Failed to read %i", rc);
   }
   else
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Can't read without a filehandle");
+    kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Can't read without a filehandle");
 
   return -1;
 }
 
-bool Close(void* context)
+int64_t CSFTPFile::Seek(void* context, int64_t iFilePosition, int whence)
+{
+  SFTPContext* ctx = (SFTPContext*)context;
+  if (ctx && ctx->session && ctx->sftp_handle)
+  {
+    uint64_t position = 0;
+    if (whence == SEEK_SET)
+      position = iFilePosition;
+    else if (whence == SEEK_CUR)
+      position = GetPosition(context) + iFilePosition;
+    else if (whence == SEEK_END)
+      position = GetLength(context) + iFilePosition;
+
+    if (ctx->session->Seek(ctx->sftp_handle, position) == 0)
+      return GetPosition(context);
+    else
+      return -1;
+  }
+
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Can't seek without a filehandle");
+  return -1;
+}
+
+int64_t CSFTPFile::GetLength(void* context)
+{
+  SFTPContext* ctx = (SFTPContext*)context;
+  struct __stat64 buffer;
+  if (ctx->session->Stat(ctx->file.c_str(), &buffer) != 0)
+    return 0;
+
+  return buffer.st_size;
+}
+
+int64_t CSFTPFile::GetPosition(void* context)
+{
+  SFTPContext* ctx = (SFTPContext*)context;
+  if (ctx->session && ctx->sftp_handle)
+    return ctx->session->GetPosition(ctx->sftp_handle);
+
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Can't get position without a filehandle for '%s'", ctx->file.c_str());
+  return 0;
+}
+
+int CSFTPFile::IoControl(void* context, XFILE::EIoControl request, void* param)
+{
+  if(request == XFILE::IOCTRL_SEEK_POSSIBLE)
+    return 1;
+
+  return -1;
+}
+
+int CSFTPFile::Stat(VFSURL* url, struct __stat64* buffer)
+{
+  CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
+  if (session)
+    return session->Stat(url->filename, buffer);
+
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Failed to create session to stat for '%s'", url->filename);
+  return -1;
+}
+
+bool CSFTPFile::Close(void* context)
 {
   SFTPContext* ctx = (SFTPContext*)context;
   if (ctx->session && ctx->sftp_handle)
@@ -174,108 +169,40 @@ bool Close(void* context)
   return true;
 }
 
-int64_t GetLength(void* context)
-{
-  SFTPContext* ctx = (SFTPContext*)context;
-  struct __stat64 buffer;
-  if (ctx->session->Stat(ctx->file.c_str(), &buffer) != 0)
-    return 0;
-  else
-    return buffer.st_size;
-}
-
-int64_t GetPosition(void* context)
-{
-  SFTPContext* ctx = (SFTPContext*)context;
-  if (ctx->session && ctx->sftp_handle)
-    return ctx->session->GetPosition(ctx->sftp_handle);
-
-  XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Can't get position without a filehandle for '%s'", ctx->file.c_str());
-  return 0;
-}
-
-
-int64_t Seek(void* context, int64_t iFilePosition, int iWhence)
-{
-  SFTPContext* ctx = (SFTPContext*)context;
-  if (ctx && ctx->session && ctx->sftp_handle)
-  {
-    uint64_t position = 0;
-    if (iWhence == SEEK_SET)
-      position = iFilePosition;
-    else if (iWhence == SEEK_CUR)
-      position = GetPosition(context) + iFilePosition;
-    else if (iWhence == SEEK_END)
-      position = GetLength(context) + iFilePosition;
-
-    if (ctx->session->Seek(ctx->sftp_handle, position) == 0)
-      return GetPosition(context);
-    else
-      return -1;
-  }
-  else
-  {
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Can't seek without a filehandle");
-    return -1;
-  }
-}
-
-bool Exists(VFSURL* url)
+bool CSFTPFile::Exists(VFSURL* url)
 {
   CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
   if (session)
     return session->FileExists(url->filename);
-  else
-  {
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Failed to create session to check exists for '%s'", url->filename);
-    return false;
-  }
+
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Failed to create session to check exists for '%s'", url->filename);
+  return false;
 }
 
-int Stat(VFSURL* url, struct __stat64* buffer)
-{
-  CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
-  if (session)
-    return session->Stat(url->filename, buffer);
-  else
-  {
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Failed to create session to stat for '%s'", url->filename);
-    return -1;
-  }
-}
-
-int IoControl(void* context, XFILE::EIoControl request, void* param)
-{
-  if(request == XFILE::IOCTRL_SEEK_POSSIBLE)
-    return 1;
-
-  return -1;
-}
-
-void ClearOutIdle()
+void CSFTPFile::ClearOutIdle()
 {
   CSFTPSessionManager::Get().ClearOutIdleSessions();
 }
 
-void DisconnectAll()
+void CSFTPFile::DisconnectAll()
 {
   CSFTPSessionManager::Get().DisconnectAllSessions();
 }
 
-bool DirectoryExists(VFSURL* url)
+bool CSFTPFile::DirectoryExists(VFSURL* url)
 {
   CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
   if (session)
     return session->DirectoryExists(url->filename);
-  else
-  {
-    XBMC->Log(ADDON::LOG_ERROR, "SFTPFile: Failed to create session to check exists");
-    return false;
-  }
+
+  kodi::Log(ADDON_LOG_ERROR, "SFTPFile: Failed to create session to check exists");
+  return false;
 }
 
-void* GetDirectory(VFSURL* url, VFSDirEntry** items,
-                   int* num_items, VFSCallbacks* callbacks)
+void* CSFTPFile::GetDirectory(VFSURL* url,
+                              VFSDirEntry** entries,
+                              int* num_entries,
+                              VFSCallbacks* callbacks)
 {
   std::vector<VFSDirEntry>* result = new std::vector<VFSDirEntry>;
   CSFTPSessionPtr session = CSFTPSessionManager::Get().CreateSession(url);
@@ -289,13 +216,13 @@ void* GetDirectory(VFSURL* url, VFSDirEntry** items,
   }
 
   if (result->size())
-    *items = &(*result)[0];
-  *num_items = result->size();
+    *entries = &(*result)[0];
+  *num_entries = result->size();
 
   return result;
 }
 
-void FreeDirectory(void* items)
+void CSFTPFile::FreeDirectory(void* items)
 {
   std::vector<VFSDirEntry>& ctx = *(std::vector<VFSDirEntry>*)items;
   for (size_t i=0;i<ctx.size();++i)
@@ -312,79 +239,16 @@ void FreeDirectory(void* items)
   delete &ctx;
 }
 
-void* OpenForWrite(VFSURL* url, bool bOverWrite)
-{
-  return NULL;
-}
 
-bool Rename(VFSURL* url, VFSURL* url2)
+class CMyAddon : public kodi::addon::CAddonBase
 {
-  return false;
-}
+public:
+  CMyAddon() { }
+  virtual ADDON_STATUS CreateInstance(int instanceType, std::string instanceID, KODI_HANDLE instance, KODI_HANDLE& addonInstance) override
+  {
+    addonInstance = new CSFTPFile(instance);
+    return ADDON_STATUS_OK;
+  }
+};
 
-bool Delete(VFSURL* url)
-{
-  return false;
-}
-
-ssize_t Write(void* context, const void* lpBuf, size_t uiBufSize)
-{
-  return -1;
-}
-
-int Truncate(void* context, int64_t size)
-{
-  return -1;
-}
-
-bool RemoveDirectory(VFSURL* url)
-{
-  return false;
-}
-
-bool CreateDirectory(VFSURL* url)
-{
-  return false;
-}
-
-void* ContainsFiles(VFSURL* url, VFSDirEntry** items, int* num_items, char* rootpath)
-{
-  return NULL;
-}
-
-int GetStartTime(void* ctx)
-{
-  return 0;
-}
-
-int GetTotalTime(void* ctx)
-{
-  return 0;
-}
-
-bool NextChannel(void* context, bool preview)
-{
-  return false;
-}
-
-bool PrevChannel(void* context, bool preview)
-{
-  return false;
-}
-
-bool SelectChannel(void* context, unsigned int uiChannel)
-{
-  return false;
-}
-
-bool UpdateItem(void* context)
-{
-  return false;
-}
-
-int GetChunkSize(void* context)
-{
-  return 1;
-}
-
-}
+ADDONCREATOR(CMyAddon);
